@@ -1,0 +1,31 @@
+{
+  "name": "ce-secrets",
+  "version": "0.2.0",
+  "description": "Encrypted multi-device secrets vault + auth for ce-net. Generate/rotate/store keys under a name without ever printing the value; share across your devices (laptop + phone tab); grant apps scoped access. CLI + Node SDK + browser SDK + standalone app.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Leif Rydenfalk <ledamecrydenfalk@gmail.com>",
+  "bin": {
+    "ce-secrets": "bin/ce-secrets.mjs"
+  },
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./client": "./client/index.js",
+    "./crypto": "./src/crypto.mjs",
+    "./vault": "./src/vault.mjs",
+    "./store": "./src/store.mjs",
+    "./auth": "./src/auth.mjs"
+  },
+  "files": ["bin", "src", "client", "fixtures", "README.md"],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "selftest": "node bin/ce-secrets.mjs selftest",
+    "test": "node --test 'test/**/*.test.mjs'",
+    "vectors": "node test/emit-vectors.mjs",
+    "app:build": "cp src/crypto.mjs src/vault.mjs src/auth.mjs app/ && sed 's#\\.\\./src/#./#g' client/index.js > app/client.js",
+    "app:deploy": "npm run app:build && node ../web/ce-app/bin/ce-app.mjs deploy --project vault"
+  }
+}

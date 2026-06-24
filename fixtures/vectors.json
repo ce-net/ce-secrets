@@ -1,0 +1,140 @@
+{
+  "note": "GOLDEN vectors for ce-secrets. Verify/decrypt direction is deterministic. The five interop traps: (1) HKDF salt=EMPTY 0-bytes + info \"ce-secrets/master-wrap/v1\"; (2) AES-GCM 12-byte nonce, 16-byte tag appended to ct; (3) ECDSA raw P1363 64-byte sig, NOT DER; (4) base64url NO padding; (5) top-level-sorted-key JSON canonicalization (no whitespace).",
+  "version": 1,
+  "canonicalization": {
+    "algorithm": "JSON.stringify(obj, Object.keys(obj).sort())",
+    "example_object": {
+      "b": 2,
+      "a": 1,
+      "c": 3
+    },
+    "example_canonical": "{\"a\":1,\"b\":2,\"c\":3}"
+  },
+  "device": {
+    "ecdhPriv": {
+      "key_ops": [
+        "deriveBits"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "M3CtY4emfBsOGSCycOGY_wRD2ufV_Glmwt95AQRJRKo",
+      "y": "Q2p7o-FMQ-wRaiTOXzMd6Dyj3aFQQsi4v71k1sNnArs",
+      "crv": "P-256",
+      "d": "sR3IYJSDqB8x4l3J3p6w8t3y2QZ1m0c9V7n4kL2bA8E"
+    },
+    "ecdhPub": {
+      "key_ops": [],
+      "ext": true,
+      "kty": "EC",
+      "x": "M3CtY4emfBsOGSCycOGY_wRD2ufV_Glmwt95AQRJRKo",
+      "y": "Q2p7o-FMQ-wRaiTOXzMd6Dyj3aFQQsi4v71k1sNnArs",
+      "crv": "P-256"
+    },
+    "ecdsaPriv": {
+      "key_ops": [
+        "sign"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "ReIzIU_aBWgw2kRAa42L_AZiQmiYYb4RsvdGTwdR-jk",
+      "y": "oPRQppQEcMfMJknsjaQNU2uZc4Hz7GZ9T_Bf0J2L4KM",
+      "crv": "P-256",
+      "d": "pQ7w2zX9c4V6n8m1L3k5J7h9G2f4D6s8A0b2C4e6F8I"
+    },
+    "ecdsaPub": {
+      "key_ops": [
+        "verify"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "ReIzIU_aBWgw2kRAa42L_AZiQmiYYb4RsvdGTwdR-jk",
+      "y": "oPRQppQEcMfMJknsjaQNU2uZc4Hz7GZ9T_Bf0J2L4KM",
+      "crv": "P-256"
+    },
+    "ecdhRawPubHex": "043370ad6387a67c1b0e1920b270e198ff0443dae7d5fc6966c2df7901044944aa436a7ba3e14c43ec116a24ce5f331de83ca3dda15042c8b8bfbd64d6c36702bb",
+    "ecdsaRawPubHex": "0445e233214fda056830da44406b8d8bfc066242689861be11b2f7464f0751fa39a0f450a6940470c7cc2649ec8da40d536b997381f3ec667d4ff05fd09d8be0a3",
+    "deviceId": "0e30d71a203f8933",
+    "deviceIdInput": "[\"M3CtY4emfBsOGSCycOGY_wRD2ufV_Glmwt95AQRJRKo\",\"Q2p7o-FMQ-wRaiTOXzMd6Dyj3aFQQsi4v71k1sNnArs\",\"ReIzIU_aBWgw2kRAa42L_AZiQmiYYb4RsvdGTwdR-jk\",\"oPRQppQEcMfMJknsjaQNU2uZc4Hz7GZ9T_Bf0J2L4KM\"]",
+    "deviceIdAlgorithm": "hex(sha256(utf8(JSON.stringify([ecdhPub.x,ecdhPub.y,ecdsaPub.x,ecdsaPub.y]))))[..16]"
+  },
+  "master": {
+    "hex": "00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f"
+  },
+  "masterWrap": {
+    "algorithm": "ECIES: ephemeral ECDH P-256 -> HKDF(SHA-256, salt=EMPTY, info=\"ce-secrets/master-wrap/v1\") -> AES-256-GCM",
+    "hkdfSalt": "EMPTY (zero-length, not absent)",
+    "hkdfInfo": "ce-secrets/master-wrap/v1",
+    "recipientEcdhPub": {
+      "key_ops": [],
+      "ext": true,
+      "kty": "EC",
+      "x": "M3CtY4emfBsOGSCycOGY_wRD2ufV_Glmwt95AQRJRKo",
+      "y": "Q2p7o-FMQ-wRaiTOXzMd6Dyj3aFQQsi4v71k1sNnArs",
+      "crv": "P-256"
+    },
+    "recipientEcdhPriv": {
+      "key_ops": [
+        "deriveBits"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "M3CtY4emfBsOGSCycOGY_wRD2ufV_Glmwt95AQRJRKo",
+      "y": "Q2p7o-FMQ-wRaiTOXzMd6Dyj3aFQQsi4v71k1sNnArs",
+      "crv": "P-256",
+      "d": "sR3IYJSDqB8x4l3J3p6w8t3y2QZ1m0c9V7n4kL2bA8E"
+    },
+    "wrapped": {
+      "eph": {
+        "key_ops": [],
+        "ext": true,
+        "kty": "EC",
+        "x": "eG5SiLCbbA4vjU2A8bZJZMsEUYhS0g6B9N5hbAWnnhE",
+        "y": "Xq9TBI8Gi4J4O1AF3cqsYXpzuscQDOFLpQUvXD0AD6Y",
+        "crv": "P-256"
+      },
+      "iv": "JGEJqzui288Qe_gK",
+      "ct": "8PLG5SJ4ykarnpjzNqzE1Lbrly3zYJrHRhcY4yidoVN8vbeFM5todcYcQTi-IwsG"
+    },
+    "expectMasterHex": "00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f"
+  },
+  "secret": {
+    "algorithm": "AES-256-GCM under the master, 12-byte nonce, 16-byte tag appended, no AAD",
+    "masterHex": "00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f",
+    "plaintext": "sk-ce-secrets-golden-vector-0001",
+    "plaintextHex": "736b2d63652d736563726574732d676f6c64656e2d766563746f722d30303031",
+    "sealed": {
+      "iv": "pDmfQSQgxHCENbwq",
+      "ct": "htTwAlk4DMO2r_hmIz4SJZ3J1Cdza75QZD9hwuJxGNcRwIyV-DAvfWwaB7eZY_Dm"
+    },
+    "expectPlaintext": "sk-ce-secrets-golden-vector-0001"
+  },
+  "auth": {
+    "algorithm": "ECDSA P-256/SHA-256 over UTF8(stableStringify({aud,deviceId,nonce,ts})), raw P1363 64-byte sig, base64url no-pad",
+    "body": {
+      "aud": "ce-watch",
+      "deviceId": "0e30d71a203f8933",
+      "nonce": "Z29sZGVuLW5vbmNlLTAwMDAwMDAwMDAwMDAwMDA",
+      "ts": "2026-06-24T00:00:00.000Z"
+    },
+    "canonical": "{\"aud\":\"ce-watch\",\"deviceId\":\"0e30d71a203f8933\",\"nonce\":\"Z29sZGVuLW5vbmNlLTAwMDAwMDAwMDAwMDAwMDA\",\"ts\":\"2026-06-24T00:00:00.000Z\"}",
+    "ecdsaPub": {
+      "key_ops": [
+        "verify"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "ReIzIU_aBWgw2kRAa42L_AZiQmiYYb4RsvdGTwdR-jk",
+      "y": "oPRQppQEcMfMJknsjaQNU2uZc4Hz7GZ9T_Bf0J2L4KM",
+      "crv": "P-256"
+    },
+    "sig": "B87nKGDstKPnujaDJplSTKJtlVnQoVGoCI3CQsH24l36f9aX2BcJjwAWXxp5NyoPMyh8UIvlwl5mcYVdRPVXQA",
+    "expectVerify": true
+  },
+  "nonce": {
+    "algorithm": "hex(HMAC-SHA256(serverSecret, ts)); TTL 300s on ts",
+    "serverSecret": "golden-server-secret",
+    "ts": "2026-06-24T00:00:00.000Z",
+    "nonce": "dc18d097a4245e5e087edec661c9fc66337db6a0feebc4b12d59ea743e4a622c",
+    "ttlSecs": 300
+  }
+}
