@@ -89,6 +89,16 @@ async function main() {
       return;
     }
 
+    case 'recover': {
+      // Owner recovery: re-derive the master from THIS device's key and re-establish the vault, even
+      // if the store was wiped. The owner is never locked out of their own vault.
+      const c = await ctx();
+      await V.recoverVault(c, opts.label);
+      console.log(`vault recovered. this device (${c.device.id}) is the owner and re-enrolled.`);
+      console.log(`(re-add any secrets and re-approve devices; sealed values under an old master are gone.)`);
+      return;
+    }
+
     case 'pair': {
       const c = await ctx();
       if (await V.isEnrolled(c)) return console.log('this device is already enrolled.');

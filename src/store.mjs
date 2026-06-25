@@ -150,14 +150,20 @@ export function meshStore(ns, nodeUrl = NODE_URL()) {
       const list = Array.isArray(j) ? j : (j.providers || j.nodes || j.node_ids || []);
       toNode = list.map((x) => (typeof x === 'string' ? x : x.node_id || x.id)).find(Boolean);
     }
-    // 3) When nodeUrl points straight at the kv host's node (e.g. a public /ce proxy in front of the
-    //    relay that runs cast-control), the node behind it IS the host — target it directly.
-    if (!toNode) {
-      const s = await fetch(`${nodeUrl}/status`, { headers: authH() }).catch(() => null);
-      if (s && s.ok) {
-        const j = await s.json();
-        toNode = j.node_id || j.nodeId || null;
-      }
+    if (toNode) return;
+    // 3a) Local node (http): the kv host is NOT us — it's the public vault host that all devices reach.
+    //     Default to the ce-net relay (the infra node that runs the vault kv); the local node routes to
+    //     it. Override with CE_KV_NODE for other deployments. (This is why the CLI now "just works" with
+    //     no env: discovery is unreliable cross-node, so we fall back to the known host.)
+    if (nodeUrl.startsWith('http://')) {
+      toNode = (process.env.CE_NET_RELAY || '21f5c206ffbf88d7bebdf9078d687e30be5b9a3c6e7ac752e018a559faf171d4').trim();
+      return;
+    }
+    // 3b) A public /ce proxy in front of the host node: the node behind it IS the host — target it.
+    const s = await fetch(`${nodeUrl}/status`, { headers: authH() }).catch(() => null);
+    if (s && s.ok) {
+      const j = await s.json();
+      toNode = j.node_id || j.nodeId || null;
     }
     if (!toNode) {
       throw new Error(
