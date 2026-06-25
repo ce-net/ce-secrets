@@ -59,6 +59,19 @@ async function importEcdsaPub(jwk) { return subtle.importKey('jwk', jwk, { name:
 // ---- master key + ECIES wrap ------------------------------------------------
 export function generateMaster() { return getRandom(32); }
 
+// Derive the vault master DETERMINISTICALLY from the OWNER's device private key. This is the recovery
+// root: the owner can always re-establish the vault from their key alone (in the OS keychain), so a
+// wiped store never locks the owner out — unlike a random master that exists only inside the store.
+// The master is still wrapped (ECIES) to every enrolled device; only the OWNER re-derives it.
+export async function deriveOwnerMaster(deviceKey, ns) {
+  const seed = b64.dec(deviceKey.ecdhPriv.d); // the P-256 private scalar (32 bytes), owner-only
+  const base = await subtle.importKey('raw', seed, 'HKDF', false, ['deriveBits']);
+  const bits = await subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: utf8.enc(`ce-vault:${ns}`), info: utf8.enc('master-v1') },
+    base, 256);
+  return new Uint8Array(bits);
+}
+
 async function hkdfAesKey(sharedBits, info) {
   const base = await subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
   return subtle.deriveKey(

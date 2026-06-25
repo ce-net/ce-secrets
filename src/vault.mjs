@@ -33,12 +33,23 @@ export async function loadMaster(ctx) {
 export async function vaultExists(ctx) { return !!(await ctx.store.get('meta')); }
 export async function isEnrolled(ctx) { return !!(await ctx.store.get(DEVICE(ctx.device.id))); }
 
-// First device: mint the master and enroll self. Returns false if a vault already exists.
+// First device / owner: establish the vault from the OWNER's key. Returns false if a vault already
+// exists (use recoverVault to re-establish a wiped/partial one).
 export async function initVault(ctx, label) {
   if (await vaultExists(ctx)) return false;
-  const master = C.generateMaster();
-  await enroll(ctx, ctx.device, master, label || 'this device', ctx.device.id);
-  await ctx.store.put('meta', { createdAt: now(), version: 1 });
+  return recoverVault(ctx, label);
+}
+
+// Re-establish the vault from the OWNER's key alone: re-derive the master (deterministic from this
+// device's private key) and (re-)enroll this device as owner. THE recovery primitive — idempotent and
+// safe after a store wipe, so the owner is never locked out of their own vault. Other enrolled devices
+// keep working (their wrapped master equals the re-derived one). Secrets sealed under a *different*
+// (old random) master must be re-added; new vaults are all derived, so future recovery is lossless
+// once the store is durable.
+export async function recoverVault(ctx, label) {
+  const master = await C.deriveOwnerMaster(ctx.device, ctx.ns);
+  await enroll(ctx, ctx.device, master, label || 'this device (owner)', ctx.device.id);
+  await ctx.store.put('meta', { createdAt: now(), version: 2, owner: ctx.device.id });
   return true;
 }
 
