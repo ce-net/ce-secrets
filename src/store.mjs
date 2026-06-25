@@ -144,16 +144,25 @@ export function meshStore(ns, nodeUrl = NODE_URL()) {
     //    to). Set CE_KV_NODE when DHT service discovery isn't resolving cross-node yet.
     if (process.env.CE_KV_NODE) { toNode = process.env.CE_KV_NODE.trim(); return; }
     // 2) Discovery via the local node's DHT view.
-    const r = await fetch(`${nodeUrl}/discovery/find/${encodeURIComponent(service)}`, { headers: authH() });
-    if (r.ok) {
+    const r = await fetch(`${nodeUrl}/discovery/find/${encodeURIComponent(service)}`, { headers: authH() }).catch(() => null);
+    if (r && r.ok) {
       const j = await r.json();
       const list = Array.isArray(j) ? j : (j.providers || j.nodes || j.node_ids || []);
       toNode = list.map((x) => (typeof x === 'string' ? x : x.node_id || x.id)).find(Boolean);
     }
+    // 3) When nodeUrl points straight at the kv host's node (e.g. a public /ce proxy in front of the
+    //    relay that runs cast-control), the node behind it IS the host — target it directly.
+    if (!toNode) {
+      const s = await fetch(`${nodeUrl}/status`, { headers: authH() }).catch(() => null);
+      if (s && s.ok) {
+        const j = await s.json();
+        toNode = j.node_id || j.nodeId || null;
+      }
+    }
     if (!toNode) {
       throw new Error(
         `mesh kv: can't locate a node hosting ${service}. ` +
-          `Set CE_KV_NODE to the kv host node id (the relay), or ensure DHT discovery resolves it.`,
+          `Point CE_NODE_URL at the kv host's node (e.g. https://<app>.ce-net.com/ce), or set CE_KV_NODE.`,
       );
     }
   }
