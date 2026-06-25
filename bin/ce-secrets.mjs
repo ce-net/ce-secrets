@@ -43,7 +43,11 @@ async function ctx() {
   if (created) console.error(`(generated this device's key in ${where})`);
   const ns = await S.vaultNamespace();
   const hub = (typeof opts.hub === 'string' && opts.hub) || undefined;
-  return { device: dk, store: S.hubStore(ns, hub), ns, deviceWhere: where };
+  // Default to the MESH store (ce-kv service) — the same store the browser vault uses — so pairing
+  // converges. The deprecated hub /db is opt-in via --hub or CE_VAULT_STORE=hub for emergencies.
+  const useHub = opts.hub || process.env.CE_VAULT_STORE === 'hub';
+  const store = useHub ? S.hubStore(ns, hub) : S.meshStore(ns);
+  return { device: dk, store, ns, deviceWhere: where };
 }
 
 // Read a secret with no echo (TTY) or from a pipe.

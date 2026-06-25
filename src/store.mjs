@@ -107,6 +107,78 @@ export function hubStore(ns, hub = DEFAULT_HUB) {
   };
 }
 
+// ---- mesh store (the mesh-native replacement for the hub /db) ----------------
+// Reaches the ce-kv mesh service (cast-control's `ce-kv/<ns>/1`, ce-coord-backed) via the LOCAL CE
+// node's /mesh/request, discovering the serving node by the advertised `ce-kv-<ns>` service. This is
+// the SAME store the browser vault writes to, so browser pairing requests + the CLI converge. No hub.
+const NODE_URL = () => process.env.CE_NODE_URL || 'http://127.0.0.1:8844';
+const hex = (s) => Buffer.from(s, 'utf8').toString('hex');
+const unhex = (h) => Buffer.from(h, 'hex').toString('utf8');
+
+async function nodeApiToken() {
+  if (process.env.CE_API_TOKEN) return process.env.CE_API_TOKEN;
+  const cands = [
+    process.env.CE_DATA_DIR && path.join(process.env.CE_DATA_DIR, 'api.token'),
+    path.join(os.homedir(), 'Library', 'Application Support', 'ce', 'api.token'), // macOS
+    path.join(os.homedir(), '.local', 'share', 'ce', 'api.token'), // Linux
+  ].filter(Boolean);
+  for (const p of cands) {
+    try { const t = (await fs.readFile(p, 'utf8')).trim(); if (t) return t; } catch {}
+  }
+  return null;
+}
+
+export function meshStore(ns, nodeUrl = NODE_URL()) {
+  const topic = `ce-kv/${ns}/1`;
+  const service = `ce-kv-${ns}`;
+  let token = null, toNode = null;
+  // A local node (http://127.0.0.1) needs the API token; a public /ce proxy (https) injects its own,
+  // so don't send ours there. This lets the CLI reach the kv host's node via /ce when the local node
+  // isn't meshed with it yet (CE_NODE_URL=https://<app-host>/ce, CE_KV_NODE=<host node id>).
+  const authH = () => (token && nodeUrl.startsWith('http://') ? { Authorization: `Bearer ${token}` } : {});
+
+  async function ready() {
+    if (token === null) token = (await nodeApiToken()) || '';
+    if (toNode) return;
+    // 1) Explicit override: the node id hosting this vault's KV (the public host the local node routes
+    //    to). Set CE_KV_NODE when DHT service discovery isn't resolving cross-node yet.
+    if (process.env.CE_KV_NODE) { toNode = process.env.CE_KV_NODE.trim(); return; }
+    // 2) Discovery via the local node's DHT view.
+    const r = await fetch(`${nodeUrl}/discovery/find/${encodeURIComponent(service)}`, { headers: authH() });
+    if (r.ok) {
+      const j = await r.json();
+      const list = Array.isArray(j) ? j : (j.providers || j.nodes || j.node_ids || []);
+      toNode = list.map((x) => (typeof x === 'string' ? x : x.node_id || x.id)).find(Boolean);
+    }
+    if (!toNode) {
+      throw new Error(
+        `mesh kv: can't locate a node hosting ${service}. ` +
+          `Set CE_KV_NODE to the kv host node id (the relay), or ensure DHT discovery resolves it.`,
+      );
+    }
+  }
+  async function call(req) {
+    await ready();
+    const r = await fetch(`${nodeUrl}/mesh/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authH() },
+      body: JSON.stringify({ to: toNode, topic, payload_hex: hex(JSON.stringify(req)), timeout_ms: 8000 }),
+    });
+    if (!r.ok) throw new Error(`mesh kv ${req.op}: ${r.status}`);
+    const j = await r.json();
+    if (!j.payload_hex) throw new Error('mesh kv: empty reply');
+    const out = JSON.parse(unhex(j.payload_hex));
+    if (out && out.error) throw new Error(out.error);
+    return out;
+  }
+  return {
+    async get(key) { const o = await call({ op: 'get', key }); return o.value ?? null; },
+    async put(key, value) { await call({ op: 'put', key, value }); },
+    async del(key) { await call({ op: 'del', key }); },
+    async list(prefix = '') { const o = await call({ op: 'list', prefix, limit: 1000 }); return (o.items || []).map((e) => ({ key: e.key, value: e.value })); },
+  };
+}
+
 // ---- device key persistence (this device's private key) ---------------------
 const KC_SERVICE = 'ce-secrets-device';
 const FILE_PATH = path.join(os.homedir(), '.ce', 'secrets', 'device.json');
