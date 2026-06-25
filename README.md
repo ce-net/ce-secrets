@@ -1,5 +1,13 @@
 # ce-secrets
 
+> **Status (2026-06-26): superseded by `ce-iam`.** The vault is now part of the merged identity +
+> access + secrets system in the [`ce-iam`](https://github.com/ce-net/ce-iam) repo: the Rust vault is
+> `ce-iam-core::secrets::Vault`, the browser/wasm port is `ce-iam-core-wasm`, and the TS SDK is
+> `@ce-net/iam` (`ce-iam-ts`). New consumers should use those. **This JS implementation is kept as the
+> canonical reference**: `src/crypto.mjs` is the golden-vector oracle every Rust/wasm port is tested
+> against byte-for-byte, and `src/vault.mjs` is the behavior the Rust `Vault` was ported from. The CLI
+> below still works; it is no longer the path forward. See `ce-iam/docs/MERGE.md`.
+
 A secrets vault for CE. You tell it what key you need; it generates and stores it under a
 **name** — you never see or paste the value. Every one of your devices (laptop, and your phone
 even though it's just a browser tab) shares one **encrypted** vault. Apps get access only when
