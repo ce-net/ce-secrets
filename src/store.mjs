@@ -15,15 +15,48 @@ import * as C from './crypto.mjs';
 const DEFAULT_HUB = process.env.CE_HUB || 'https://ce-net.com';
 
 // ---- identity / namespace ---------------------------------------------------
-// Reuse ~/.ce/id (the ce-app stable id; prefers `ce id`). nodeprefix = first 10 hex.
+// The vault namespace must be the SAME across the CLI, the local CE node, and browser tabs, or they
+// land in different (empty) vaults and "this machine has access" silently fails. So the canonical CE
+// node id is the source of truth — NOT a cached file that can drift. ~/.ce/id is only a self-healing
+// cache: whenever the real node id is found it is written back, so a stale/throwaway cache (the bug
+// that pointed the vault at an empty namespace) repairs itself on the next run.
+//
+// Resolution order: (1) `ce id` (the running node, authoritative — matches ce-app + the browser),
+// (2) the node identity on disk (no binary needed), (3) the ~/.ce/id cache, (4) last resort: a
+// generated id (a machine with no CE node at all — an isolated local vault, with a warning).
+
+// The real CE node id (64 hex), or null if no node is present on this machine.
+export async function nodeId() {
+  try {
+    const r = spawnSync('ce', ['id'], { encoding: 'utf8', timeout: 4000 });
+    const m = (r.stdout || '').match(/[0-9a-f]{64}/i);
+    if (m) return m[0].toLowerCase();
+  } catch {}
+  for (const p of [
+    process.env.CE_DATA_DIR && path.join(process.env.CE_DATA_DIR, 'identity', 'node.pub'),
+    path.join(os.homedir(), '.local', 'share', 'ce', 'identity', 'node.pub'),
+  ].filter(Boolean)) {
+    try { const m = (await fs.readFile(p, 'utf8')).trim().match(/[0-9a-f]{64}/i); if (m) return m[0].toLowerCase(); } catch {}
+  }
+  return null;
+}
+
 export async function nodePrefix() {
   const idFile = path.join(os.homedir(), '.ce', 'id');
+  const real = await nodeId();
+  if (real) {
+    // Self-heal the cache so a previously-poisoned ~/.ce/id can't keep misdirecting the vault.
+    try {
+      const cached = (await fs.readFile(idFile, 'utf8').catch(() => '')).trim();
+      if (cached !== real) { await fs.mkdir(path.dirname(idFile), { recursive: true }); await fs.writeFile(idFile, real); }
+    } catch {}
+    return real.slice(0, 10);
+  }
+  // No running node: use the cache if it looks like an id, else generate an isolated local vault.
   try { const id = (await fs.readFile(idFile, 'utf8')).trim(); if (/^[0-9a-f]{10,}$/i.test(id)) return id.slice(0, 10); } catch {}
-  // fall back to `ce id`
-  try { const r = spawnSync('ce', ['id'], { encoding: 'utf8', timeout: 4000 }); const m = (r.stdout || '').match(/[0-9a-f]{16,}/i); if (m) return m[0].slice(0, 10).toLowerCase(); } catch {}
-  // last resort: a generated, persisted id
   const gen = C.enc.hex.enc(C.randomBytes(8));
   try { await fs.mkdir(path.dirname(idFile), { recursive: true }); await fs.writeFile(idFile, gen); } catch {}
+  console.error('ce-secrets: no CE node id found — using a generated, isolated vault namespace. Run where `ce` is available to share one vault across your devices.');
   return gen.slice(0, 10);
 }
 
