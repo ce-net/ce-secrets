@@ -5,7 +5,7 @@
 //
 //   ce-secrets init [--label L]          create the vault on this (first) device
 //   ce-secrets pair  [--label L]         enroll THIS device: prints a code to approve elsewhere
-//   ce-secrets device ls|approve <code>|revoke <id>
+//   ce-secrets device ls|pending|approve <code>|approve-all|revoke <id>
 //   ce-secrets gen <name> --type T [--length N]   generate + store (never prints the value)
 //   ce-secrets put <name> [--type T]     store an EXISTING secret (read with no echo / from stdin)
 //   ce-secrets ls                        list names + type + fingerprint (never values)
@@ -43,7 +43,11 @@ async function ctx() {
   if (created) console.error(`(generated this device's key in ${where})`);
   const ns = await S.vaultNamespace();
   const hub = (typeof opts.hub === 'string' && opts.hub) || undefined;
-  return { device: dk, store: S.hubStore(ns, hub), ns, deviceWhere: where };
+  // Default to the MESH store (ce-kv service) — the same store the browser vault uses — so pairing
+  // converges. The deprecated hub /db is opt-in via --hub or CE_VAULT_STORE=hub for emergencies.
+  const useHub = opts.hub || process.env.CE_VAULT_STORE === 'hub';
+  const store = useHub ? S.hubStore(ns, hub) : S.meshStore(ns);
+  return { device: dk, store, ns, deviceWhere: where };
 }
 
 // Read a secret with no echo (TTY) or from a pipe.
@@ -85,6 +89,16 @@ async function main() {
       return;
     }
 
+    case 'recover': {
+      // Owner recovery: re-derive the master from THIS device's key and re-establish the vault, even
+      // if the store was wiped. The owner is never locked out of their own vault.
+      const c = await ctx();
+      await V.recoverVault(c, opts.label);
+      console.log(`vault recovered. this device (${c.device.id}) is the owner and re-enrolled.`);
+      console.log(`(re-add any secrets and re-approve devices; sealed values under an old master are gone.)`);
+      return;
+    }
+
     case 'pair': {
       const c = await ctx();
       if (await V.isEnrolled(c)) return console.log('this device is already enrolled.');
@@ -110,9 +124,23 @@ async function main() {
       const c = await ctx();
       const sub = opts._[1];
       if (sub === 'ls') { for (const d of await V.listDevices(c)) console.log(`${d.self ? '*' : ' '} ${d.id}  ${d.label}  ${d.addedAt || ''}`); return; }
+      if (sub === 'pending') {
+        const ps = await V.listPairing(c);
+        if (!ps.length) return console.log('(no pending pairing requests)');
+        for (const p of ps) console.log(`${p.code}  ${p.label || 'new device'}  ${p.ts || ''}`);
+        return;
+      }
       if (sub === 'approve') { const id = await V.approvePairing(c, opts._[2] || die('need a pairing code')); console.log(`approved device ${id}.`); return; }
+      if (sub === 'approve-all') {
+        // No code to copy: approve every pending pairing (e.g. a browser tab that just requested it).
+        // Run this on an already-enrolled device; it wraps the master to each waiting device.
+        const ps = await V.listPairing(c);
+        if (!ps.length) return console.log('(nothing to approve)');
+        for (const p of ps) { const id = await V.approvePairing(c, p.code); console.log(`approved ${id}  (${p.label || 'new device'})`); }
+        return;
+      }
       if (sub === 'revoke') { await V.revokeDevice(c, opts._[2] || die('need a device id')); console.log('revoked. rotate secrets it held: `ce-secrets rotate <name>`.'); return; }
-      return die('device ls|approve <code>|revoke <id>');
+      return die('device ls|pending|approve <code>|approve-all|revoke <id>');
     }
 
     case 'gen': {

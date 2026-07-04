@@ -15,15 +15,48 @@ import * as C from './crypto.mjs';
 const DEFAULT_HUB = process.env.CE_HUB || 'https://ce-net.com';
 
 // ---- identity / namespace ---------------------------------------------------
-// Reuse ~/.ce/id (the ce-app stable id; prefers `ce id`). nodeprefix = first 10 hex.
+// The vault namespace must be the SAME across the CLI, the local CE node, and browser tabs, or they
+// land in different (empty) vaults and "this machine has access" silently fails. So the canonical CE
+// node id is the source of truth — NOT a cached file that can drift. ~/.ce/id is only a self-healing
+// cache: whenever the real node id is found it is written back, so a stale/throwaway cache (the bug
+// that pointed the vault at an empty namespace) repairs itself on the next run.
+//
+// Resolution order: (1) `ce id` (the running node, authoritative — matches ce-app + the browser),
+// (2) the node identity on disk (no binary needed), (3) the ~/.ce/id cache, (4) last resort: a
+// generated id (a machine with no CE node at all — an isolated local vault, with a warning).
+
+// The real CE node id (64 hex), or null if no node is present on this machine.
+export async function nodeId() {
+  try {
+    const r = spawnSync('ce', ['id'], { encoding: 'utf8', timeout: 4000 });
+    const m = (r.stdout || '').match(/[0-9a-f]{64}/i);
+    if (m) return m[0].toLowerCase();
+  } catch {}
+  for (const p of [
+    process.env.CE_DATA_DIR && path.join(process.env.CE_DATA_DIR, 'identity', 'node.pub'),
+    path.join(os.homedir(), '.local', 'share', 'ce', 'identity', 'node.pub'),
+  ].filter(Boolean)) {
+    try { const m = (await fs.readFile(p, 'utf8')).trim().match(/[0-9a-f]{64}/i); if (m) return m[0].toLowerCase(); } catch {}
+  }
+  return null;
+}
+
 export async function nodePrefix() {
   const idFile = path.join(os.homedir(), '.ce', 'id');
+  const real = await nodeId();
+  if (real) {
+    // Self-heal the cache so a previously-poisoned ~/.ce/id can't keep misdirecting the vault.
+    try {
+      const cached = (await fs.readFile(idFile, 'utf8').catch(() => '')).trim();
+      if (cached !== real) { await fs.mkdir(path.dirname(idFile), { recursive: true }); await fs.writeFile(idFile, real); }
+    } catch {}
+    return real.slice(0, 10);
+  }
+  // No running node: use the cache if it looks like an id, else generate an isolated local vault.
   try { const id = (await fs.readFile(idFile, 'utf8')).trim(); if (/^[0-9a-f]{10,}$/i.test(id)) return id.slice(0, 10); } catch {}
-  // fall back to `ce id`
-  try { const r = spawnSync('ce', ['id'], { encoding: 'utf8', timeout: 4000 }); const m = (r.stdout || '').match(/[0-9a-f]{16,}/i); if (m) return m[0].slice(0, 10).toLowerCase(); } catch {}
-  // last resort: a generated, persisted id
   const gen = C.enc.hex.enc(C.randomBytes(8));
   try { await fs.mkdir(path.dirname(idFile), { recursive: true }); await fs.writeFile(idFile, gen); } catch {}
+  console.error('ce-secrets: no CE node id found — using a generated, isolated vault namespace. Run where `ce` is available to share one vault across your devices.');
   return gen.slice(0, 10);
 }
 
@@ -71,6 +104,93 @@ export function hubStore(ns, hub = DEFAULT_HUB) {
       const { items = [] } = JSON.parse(r.text || '{}');
       return items;
     },
+  };
+}
+
+// ---- mesh store (the mesh-native replacement for the hub /db) ----------------
+// Reaches the ce-kv mesh service (cast-control's `ce-kv/<ns>/1`, ce-coord-backed) via the LOCAL CE
+// node's /mesh/request, discovering the serving node by the advertised `ce-kv-<ns>` service. This is
+// the SAME store the browser vault writes to, so browser pairing requests + the CLI converge. No hub.
+const NODE_URL = () => process.env.CE_NODE_URL || 'http://127.0.0.1:8844';
+const hex = (s) => Buffer.from(s, 'utf8').toString('hex');
+const unhex = (h) => Buffer.from(h, 'hex').toString('utf8');
+
+async function nodeApiToken() {
+  if (process.env.CE_API_TOKEN) return process.env.CE_API_TOKEN;
+  const cands = [
+    process.env.CE_DATA_DIR && path.join(process.env.CE_DATA_DIR, 'api.token'),
+    path.join(os.homedir(), 'Library', 'Application Support', 'ce', 'api.token'), // macOS
+    path.join(os.homedir(), '.local', 'share', 'ce', 'api.token'), // Linux
+  ].filter(Boolean);
+  for (const p of cands) {
+    try { const t = (await fs.readFile(p, 'utf8')).trim(); if (t) return t; } catch {}
+  }
+  return null;
+}
+
+export function meshStore(ns, nodeUrl = NODE_URL()) {
+  const topic = `ce-kv/${ns}/1`;
+  const service = `ce-kv-${ns}`;
+  let token = null, toNode = null;
+  // A local node (http://127.0.0.1) needs the API token; a public /ce proxy (https) injects its own,
+  // so don't send ours there. This lets the CLI reach the kv host's node via /ce when the local node
+  // isn't meshed with it yet (CE_NODE_URL=https://<app-host>/ce, CE_KV_NODE=<host node id>).
+  const authH = () => (token && nodeUrl.startsWith('http://') ? { Authorization: `Bearer ${token}` } : {});
+
+  async function ready() {
+    if (token === null) token = (await nodeApiToken()) || '';
+    if (toNode) return;
+    // 1) Explicit override: the node id hosting this vault's KV (the public host the local node routes
+    //    to). Set CE_KV_NODE when DHT service discovery isn't resolving cross-node yet.
+    if (process.env.CE_KV_NODE) { toNode = process.env.CE_KV_NODE.trim(); return; }
+    // 2) Discovery via the local node's DHT view.
+    const r = await fetch(`${nodeUrl}/discovery/find/${encodeURIComponent(service)}`, { headers: authH() }).catch(() => null);
+    if (r && r.ok) {
+      const j = await r.json();
+      const list = Array.isArray(j) ? j : (j.providers || j.nodes || j.node_ids || []);
+      toNode = list.map((x) => (typeof x === 'string' ? x : x.node_id || x.id)).find(Boolean);
+    }
+    if (toNode) return;
+    // 3a) Local node (http): the kv host is NOT us — it's the public vault host that all devices reach.
+    //     Default to the ce-net relay (the infra node that runs the vault kv); the local node routes to
+    //     it. Override with CE_KV_NODE for other deployments. (This is why the CLI now "just works" with
+    //     no env: discovery is unreliable cross-node, so we fall back to the known host.)
+    if (nodeUrl.startsWith('http://')) {
+      toNode = (process.env.CE_NET_RELAY || '21f5c206ffbf88d7bebdf9078d687e30be5b9a3c6e7ac752e018a559faf171d4').trim();
+      return;
+    }
+    // 3b) A public /ce proxy in front of the host node: the node behind it IS the host — target it.
+    const s = await fetch(`${nodeUrl}/status`, { headers: authH() }).catch(() => null);
+    if (s && s.ok) {
+      const j = await s.json();
+      toNode = j.node_id || j.nodeId || null;
+    }
+    if (!toNode) {
+      throw new Error(
+        `mesh kv: can't locate a node hosting ${service}. ` +
+          `Point CE_NODE_URL at the kv host's node (e.g. https://<app>.ce-net.com/ce), or set CE_KV_NODE.`,
+      );
+    }
+  }
+  async function call(req) {
+    await ready();
+    const r = await fetch(`${nodeUrl}/mesh/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authH() },
+      body: JSON.stringify({ to: toNode, topic, payload_hex: hex(JSON.stringify(req)), timeout_ms: 8000 }),
+    });
+    if (!r.ok) throw new Error(`mesh kv ${req.op}: ${r.status}`);
+    const j = await r.json();
+    if (!j.payload_hex) throw new Error('mesh kv: empty reply');
+    const out = JSON.parse(unhex(j.payload_hex));
+    if (out && out.error) throw new Error(out.error);
+    return out;
+  }
+  return {
+    async get(key) { const o = await call({ op: 'get', key }); return o.value ?? null; },
+    async put(key, value) { await call({ op: 'put', key, value }); },
+    async del(key) { await call({ op: 'del', key }); },
+    async list(prefix = '') { const o = await call({ op: 'list', prefix, limit: 1000 }); return (o.items || []).map((e) => ({ key: e.key, value: e.value })); },
   };
 }
 

@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "Encrypted multi-device secrets vault + auth for ce-net. Generate/rotate/store keys under a name without ever printing the value; share across your devices (laptop + phone tab); grant apps scoped access. CLI + Node SDK + browser SDK + standalone app.",
   "type": "module",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "author": "Leif Rydenfalk <ledamecrydenfalk@gmail.com>",
   "bin": {
     "ce-secrets": "bin/ce-secrets.mjs"
